@@ -27,8 +27,8 @@ from dataset.dataset import get_data_info, SortedRandomBatchSampler, ImageSequen
 
 parser = argparse.ArgumentParser(description="DeepStereoSLAM")
 parser.add_argument('--model', default='DeepStereoSLAM', help='select a model structure', choices=__models__.keys())
-parser.add_argument("--pathToSettings", default="configs.yaml", help="path to settings")
-parser.add_argument('--logdir', default='', help='the directory to save logs and checkpoints')
+parser.add_argument('--pathToSettings', default="configs.yaml", help="path to settings")
+parser.add_argument('--logdir', default='checkpoints', help='the directory to save logs and checkpoints')
 parser.add_argument('--loadckpt', default='', help='load the weights from a specific checkpoint')
 parser.add_argument('--resume', action='store_true', help='continue training the model')
 parser.add_argument('--performance', action='store_true', help='evaluate the performance')
@@ -54,11 +54,11 @@ with open('dataset/valid_data_info_path.pkl', 'rb') as file:
 
 train_sampler = SortedRandomBatchSampler(train_df, fsSettings["batch_size"], drop_last=True)
 train_dataset = ImageSequenceDataset(train_df)
-TrainImgLoader = DataLoader(train_dataset, batch_sampler=train_sampler, num_workers=4)
+TrainImgLoader = DataLoader(train_dataset, batch_sampler=train_sampler, num_workers=0)
 
 valid_sampler = SortedRandomBatchSampler(valid_df, fsSettings["batch_size"], drop_last=True)
 valid_dataset = ImageSequenceDataset(valid_df)
-TestImgLoader = DataLoader(valid_dataset, batch_sampler=valid_sampler, num_workers=4)
+TestImgLoader = DataLoader(valid_dataset, batch_sampler=valid_sampler, num_workers=0)
 
 print('Number of samples in training dataset: ', len(train_df.index))
 print('Number of samples in validation dataset: ', len(valid_df.index))
@@ -68,6 +68,9 @@ model = __models__[args.model]()
 model = nn.DataParallel(model)
 model.cuda()
 optimizer = optim.AdamW(model.parameters(), lr=fsSettings["lr"], betas=(0.9, 0.999))
+
+print("creating new summary file")
+logger = SummaryWriter(args.logdir)
 
 start_epoch = 0
 if args.resume:
@@ -121,14 +124,15 @@ def train():
             start_time = time.time()
             do_summary = global_step % fsSettings["summary_freq"] == 0
 
-            loss, scalar_outputs, h_t1, h_t2 = train_sample(sample, h_t1, h_t2, compute_metrics=do_summary)
+            #loss, scalar_outputs, h_t1, h_t2 = train_sample(sample, h_t1, h_t2, compute_metrics=do_summary)
+            loss, scalar_outputs = train_sample(sample, compute_metrics=do_summary)
 
             loss_ave.update(loss)
 
             if do_summary:
                 save_scalars(logger, 'train', scalar_outputs, global_step)
 
-            print('Epoch {}/{} | Iter {}/{} | train loss = {:.3f}({:.3f}) | time = {:.3f}'.format(epoch_idx, args.epochs,
+            print('Epoch {}/{} | Iter {}/{} | train loss = {:.3f}({:.3f}) | time = {:.3f}'.format(epoch_idx, fsSettings["epochs"],
                                                                                        batch_idx,
                                                                                        len(TrainImgLoader), loss, loss_ave.avg,
                                                                                        time.time() - start_time))
@@ -147,7 +151,8 @@ def train():
             do_summary = global_step % args.summary_freq == 0
 
             start_time = time.time()
-            loss, scalar_outputs, h_t1, h_t2 = test_sample(sample, h_t1, h_t2, compute_metrics=do_summary)
+            #loss, scalar_outputs, h_t1, h_t2 = test_sample(sample, h_t1, h_t2, compute_metrics=do_summary)
+            loss, scalar_outputs = test_sample(sample, compute_metrics=do_summary)
             tt = time.time()
 
             loss_ave_t.update(loss)
@@ -175,14 +180,19 @@ def train():
         gc.collect()
     #print('MAX epoch %d total test error = %.5f' % (bestepoch, error))
 
-def train_sample(sample, h_t1, h_t2, compute_metrics=False):
+#def train_sample(sample, h_t1, h_t2, compute_metrics=False):
+def train_sample(sample, compute_metrics=False):
     model.train()
     img_seq, poses = sample['image_seq'], sample['pose_seq']
     print(poses)
+
     img_seq = img_seq.cuda()
+    poses = poses.cuda()
+
     optimizer.zero_grad()
 
-    pose_est, h_t1, h_t2 = model(img_seq, h_t1, h_t2)
+    #pose_est, h_t1, h_t2 = model(img_seq, h_t1, h_t2)
+    pose_est = model(img_seq)
     loss = model_loss_train(pose_est, poses)
 
     scalar_outputs = {"loss": loss}
@@ -191,18 +201,23 @@ def train_sample(sample, h_t1, h_t2, compute_metrics=False):
     #        scalar_outputs["EPE"] = [EPE_metric(disp_est, disp_gt, mask) for disp_est in disp_ests_final]
     #        scalar_outputs["D1"] = [D1_metric(disp_est, disp_gt, mask) for disp_est in disp_ests_final]
 
-    loss.backward()
+    loss.backward(retain_graph=True)
     optimizer.step()
 
-    return tensor2float(loss), tensor2float(scalar_outputs), h_t1, h_t2
+    return tensor2float(loss), tensor2float(scalar_outputs) #, h_t1, h_t2
 
 @make_nograd_func
-def test_sample(sample, h_t1, h_t2, compute_metrics=True):
+#def test_sample(sample, h_t1, h_t2, compute_metrics=True):
+def test_sample(sample, compute_metrics=True):
     model.eval()
 
     img_seq, poses = sample['image_seq'], sample['pose_sq']
+
     img_seq = img_seq.cuda()
-    pose_est, h_t1, h_t2 = model(img_seq, h_t1, h_t2)
+    poses = poses.cuda()
+
+    #pose_est, h_t1, h_t2 = model(img_seq, h_t1, h_t2)
+    pose_est = model(img_seq)
 
     loss = model_loss_test(pose_est, poses)
     scalar_outputs = {"loss": loss}
@@ -212,7 +227,7 @@ def test_sample(sample, h_t1, h_t2, compute_metrics=True):
     #scalar_outputs["Thres1"] = [Thres_metric(disp_est, disp_gt, mask, 1.0) for disp_est in disp_ests]
     #scalar_outputs["Thres2"] = [Thres_metric(disp_est, disp_gt, mask, 2.0) for disp_est in disp_ests]
     #scalar_outputs["Thres3"] = [Thres_metric(disp_est, disp_gt, mask, 3.0) for disp_est in disp_ests]
-    return tensor2float(loss), tensor2float(scalar_outputs), h_t1, h_t2
+    return tensor2float(loss), tensor2float(scalar_outputs) #, h_t1, h_t2
 
 @make_nograd_func
 def measure_performance(dummy_input1):

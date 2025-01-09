@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from typing import List, Optional, Tuple
 from .core.raft import RAFT
 from .submodule import *
-
+torch.autograd.set_detect_anomaly(True)
 def json_to_args(json_path):
     # return a argparse.Namespace object
     with open(json_path, 'r') as f:
@@ -108,7 +108,7 @@ class GruHead(nn.Module):
         super(GruHead, self).__init__()
         self.conv1 = nn.Conv2d(input_dim, hidden_dim, 3, stride=1, padding=1)
         self.conv2 = nn.Conv2d(hidden_dim, output_dim, 3, padding=1)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = nn.ReLU()
 
     def forward(self, x):
         return self.conv2(self.relu(self.conv1(x)))
@@ -125,33 +125,42 @@ class DeepStereoSLAM(nn.Module):
         self.fc1 = nn.Linear(in_features=938496, out_features=256)
         self.fc2 = nn.Linear(in_features=256, out_features=6)
 
+        self.h_t1 = None
+        self.h_t2 = None
 
-    def forward(self, img: torch.Tensor, h_t1, h_t2) -> List[torch.Tensor]:
+        self.relu = nn.ReLU()
+
+        #def forward(self, img: torch.Tensor, self.h_t1, h_t2) -> List[torch.Tensor]:
+    def forward(self, img: torch.Tensor) -> List[torch.Tensor]:
 
         img = 2 * (img / 255.0) - 1.0
         img = torch.cat((img[:, 1:], img[:, :-1]), dim=2).squeeze(1)
 
         batch_size = img.size(0)
 
-        #print("input", img.shape)
+        print("input", img.shape)
 
         features = self.feat_out(img)
 
-        #print("features,", features.shape)
-        h_t1 = self.conv_gru1(features, h_t1)
-        #print("h_t1", h_t1.shape)
+        print("features,", features.shape)
+        if self.h_t1 is not None:
+            print("self.h_t1_1", self.h_t1.shape)
 
-        h_t1 = self.gru_head(h_t1)
-        #print("h_t1", h_t1.shape)
+        self.h_t1 = self.conv_gru1(features, self.h_t1)
+        print("self.h_t1_2", self.h_t1.shape)
 
-        h_t2 = self.conv_gru2(h_t1, h_t2)
+        print("self.h_t1_3", self.h_t1.shape)
+        h_h = self.gru_head(self.h_t1)
+        print("self.h_t1_4", h_h.shape)
 
-        nn_inp = h_t2.view(batch_size, -1)
-        #print("output",  nn_inp.shape)
+        self.h_t2 = self.conv_gru2(h_h, self.h_t2)
 
-        nn_inp = torch.relu(self.fc1(nn_inp))
+        nn_inp = self.h_t2.view(batch_size, -1)
+        print("output",  nn_inp.shape)
+
+        nn_inp = self.relu(self.fc1(nn_inp))
         poses = self.fc2(nn_inp)
 
         print("poses",  poses.shape)
 
-        return poses, h_t1, h_t2
+        return poses  #self.h_t1, h_t2
