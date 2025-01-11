@@ -254,7 +254,6 @@ class ConvGRUCell(nn.Module):
         self.conv_h = nn.Conv2d(input_channels + hidden_channels, hidden_channels, kernel_size, padding=padding)
 
     def forward(self, x, h_prev):
-
         if h_prev is None:
             h_prev = torch.zeros_like(x[:, :self.hidden_channels, :, :])
 
@@ -264,8 +263,8 @@ class ConvGRUCell(nn.Module):
         r_t = torch.sigmoid(self.conv_r(combined))
 
         combined_reset = torch.cat([x, r_t * h_prev], dim=1)
+
         h_tilde = torch.tanh(self.conv_h(combined_reset))
+        h_tgru = z_t * h_prev + (1 - z_t) * h_tilde
 
-        h_t = z_t * h_prev + (1 - z_t) * h_tilde
-
-        return h_t
+        return h_tgru

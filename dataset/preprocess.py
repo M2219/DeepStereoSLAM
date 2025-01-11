@@ -3,13 +3,14 @@ import glob
 import numpy as np
 import time
 from utils import R_to_angle
+import yaml
 
 
-def create_pose_data():
+def create_pose_data(configs):
     info = {'00': [0, 4540], '01': [0, 1100], '02': [0, 4660], '03': [0, 800], '04': [0, 270], '05': [0, 2760], '06': [0, 1100], '07': [0, 1100], '08': [1100, 5170], '09': [0, 1590], '10': [0, 1200]}
     start_t = time.time()
     for video in info.keys():
-        fn = '{}{}.txt'.format(pose_dir, video)
+        fn = '{}{}.txt'.format(configs['pose_dir'], video)
         print('Transforming {}...'.format(fn))
         with open(fn) as f:
             lines = [line.split('\n')[0] for line in f.readlines()]
@@ -21,4 +22,8 @@ def create_pose_data():
     print('elapsed time = {}'.format(time.time()-start_t))
 
 if __name__ == '__main__':
-	create_pose_data()
+
+    with open("configs.yaml", 'r') as f:
+        fsSettings = yaml.load(f, Loader=yaml.SafeLoader)
+
+    create_pose_data(fsSettings)

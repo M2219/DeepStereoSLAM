@@ -90,8 +90,7 @@ class ImageSequenceDataset(Dataset):
     def __init__(self, info_dataframe, minus_point_5=False):
 
         self.transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
+            transforms.ToTensor()])
 
         self.minus_point_5 = minus_point_5
         self.data_info = info_dataframe
@@ -133,8 +132,8 @@ class ImageSequenceDataset(Dataset):
             img_as_img = img_as_img.crop((w-1242, h-375, w, h))
             img_as_tensor = self.transform(img_as_img)
 
-            if self.minus_point_5:
-                img_as_tensor = img_as_tensor - 0.5  # from [0, 1] -> [-0.5, 0.5]
+            #if self.minus_point_5:
+            #    img_as_tensor = img_as_tensor - 0.5  # from [0, 1] -> [-0.5, 0.5]
 
             img_as_tensor = img_as_tensor.unsqueeze(0)
             image_sequence.append(img_as_tensor)
@@ -142,7 +141,7 @@ class ImageSequenceDataset(Dataset):
         image_sequence = torch.cat(image_sequence, 0)
 
         sample["image_seq"] = image_sequence
-        sample["pose_seq"] = groundtruth_sequence[0, :]
+        sample["pose_seq"] = groundtruth_sequence[1, :]
 
         return sample
 

@@ -24,7 +24,7 @@ from utils import *
 from models import __models__, model_loss_train, model_loss_test
 
 from dataset.dataset import get_data_info, SortedRandomBatchSampler, ImageSequenceDataset
-
+torch.autograd.set_detect_anomaly(True)
 parser = argparse.ArgumentParser(description="DeepStereoSLAM")
 parser.add_argument('--model', default='DeepStereoSLAM', help='select a model structure', choices=__models__.keys())
 parser.add_argument('--pathToSettings', default="configs.yaml", help="path to settings")
@@ -116,15 +116,14 @@ def train():
     for epoch_idx in range(start_epoch, fsSettings["epochs"]):
         adjust_learning_rate(optimizer, epoch_idx, fsSettings["lr"], fsSettings["lrepochs"])
 
-        h_t1 = None
-        h_t2 = None
+        h_t1o = None
+        h_t2o = None
 
         for batch_idx, sample in enumerate(TrainImgLoader):
             global_step = len(TrainImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
             do_summary = global_step % fsSettings["summary_freq"] == 0
 
-            #loss, scalar_outputs, h_t1, h_t2 = train_sample(sample, h_t1, h_t2, compute_metrics=do_summary)
             loss, scalar_outputs = train_sample(sample, compute_metrics=do_summary)
 
             loss_ave.update(loss)
@@ -142,8 +141,8 @@ def train():
             torch.save(checkpoint_data, "{}/checkpoint_{:0>6}.ckpt".format(args.logdir, epoch_idx))
         gc.collect()
 
-        h_t1 = None
-        h_t2 = None
+        h_t1o = None
+        h_t2o = None
 
         avg_test_scalars = AverageMeterDict()
         for batch_idx, sample in enumerate(TestImgLoader):
@@ -151,8 +150,7 @@ def train():
             do_summary = global_step % args.summary_freq == 0
 
             start_time = time.time()
-            #loss, scalar_outputs, h_t1, h_t2 = test_sample(sample, h_t1, h_t2, compute_metrics=do_summary)
-            loss, scalar_outputs = test_sample(sample, compute_metrics=do_summary)
+            loss, scalar_outputs, h_t1o, h_t2o = test_sample(sample, h_t1o, h_t2o, compute_metrics=do_summary)
             tt = time.time()
 
             loss_ave_t.update(loss)
@@ -180,18 +178,16 @@ def train():
         gc.collect()
     #print('MAX epoch %d total test error = %.5f' % (bestepoch, error))
 
-#def train_sample(sample, h_t1, h_t2, compute_metrics=False):
 def train_sample(sample, compute_metrics=False):
     model.train()
     img_seq, poses = sample['image_seq'], sample['pose_seq']
     print(poses)
-
     img_seq = img_seq.cuda()
     poses = poses.cuda()
 
     optimizer.zero_grad()
 
-    #pose_est, h_t1, h_t2 = model(img_seq, h_t1, h_t2)
+    #pose_est, h_t1o, h_t2o = model(img_seq, h_t1o, h_t2o)
     pose_est = model(img_seq)
     loss = model_loss_train(pose_est, poses)
 
@@ -201,13 +197,13 @@ def train_sample(sample, compute_metrics=False):
     #        scalar_outputs["EPE"] = [EPE_metric(disp_est, disp_gt, mask) for disp_est in disp_ests_final]
     #        scalar_outputs["D1"] = [D1_metric(disp_est, disp_gt, mask) for disp_est in disp_ests_final]
 
-    loss.backward(retain_graph=True)
+    #loss.backward(retain_graph=True)
+    loss.backward()
     optimizer.step()
 
-    return tensor2float(loss), tensor2float(scalar_outputs) #, h_t1, h_t2
+    return tensor2float(loss), tensor2float(scalar_outputs) #, h_t1o, h_t2o
 
 @make_nograd_func
-#def test_sample(sample, h_t1, h_t2, compute_metrics=True):
 def test_sample(sample, compute_metrics=True):
     model.eval()
 
@@ -216,8 +212,8 @@ def test_sample(sample, compute_metrics=True):
     img_seq = img_seq.cuda()
     poses = poses.cuda()
 
-    #pose_est, h_t1, h_t2 = model(img_seq, h_t1, h_t2)
-    pose_est = model(img_seq)
+    pose_est, h_t1o, h_t2o = model(img_seq, h_t1o, h_t2o)
+    #pose_est = model(img_seq)
 
     loss = model_loss_test(pose_est, poses)
     scalar_outputs = {"loss": loss}
@@ -227,7 +223,7 @@ def test_sample(sample, compute_metrics=True):
     #scalar_outputs["Thres1"] = [Thres_metric(disp_est, disp_gt, mask, 1.0) for disp_est in disp_ests]
     #scalar_outputs["Thres2"] = [Thres_metric(disp_est, disp_gt, mask, 2.0) for disp_est in disp_ests]
     #scalar_outputs["Thres3"] = [Thres_metric(disp_est, disp_gt, mask, 3.0) for disp_est in disp_ests]
-    return tensor2float(loss), tensor2float(scalar_outputs) #, h_t1, h_t2
+    return tensor2float(loss), tensor2float(scalar_outputs), h_t1o, h_t2o
 
 @make_nograd_func
 def measure_performance(dummy_input1):
