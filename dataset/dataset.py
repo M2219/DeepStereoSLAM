@@ -46,6 +46,7 @@ def get_data_info(dataset, configs, overlap, sample_times=1, pad_y=False, shuffl
 
         print('Folder {} finish in {} sec'.format(folder, time.time()-start_t))
 
+
     data = {'seq_len': X_len, 'image_path': X_path, 'pose': Y}
     df = pd.DataFrame(data, columns = ['seq_len', 'image_path', 'pose'])
     if shuffle:
@@ -89,8 +90,10 @@ class SortedRandomBatchSampler(Sampler):
 class ImageSequenceDataset(Dataset):
     def __init__(self, info_dataframe, minus_point_5=False):
 
-        self.transform = transforms.Compose([
-            transforms.ToTensor()])
+        mean = [0.485, 0.456, 0.406]
+        std = [0.229, 0.224, 0.225]
+
+        self.transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize(mean=mean, std=std),])
 
         self.minus_point_5 = minus_point_5
         self.data_info = info_dataframe
@@ -124,6 +127,7 @@ class ImageSequenceDataset(Dataset):
         # print('Item after transform: ' + str(index) + '   ' + str(groundtruth_sequence))
 
         image_path_sequence = self.image_arr[index]
+        #print(image_path_sequence)
 
         image_sequence = []
         for img_path in image_path_sequence:
@@ -166,7 +170,7 @@ if __name__ == '__main__':
     n_workers = 4
 
     dataset = ImageSequenceDataset(df)
-    sorted_sampler = SortedRandomBatchSampler(df, batch_size=4, drop_last=True)
+    sorted_sampler = SortedRandomBatchSampler(df, batch_size=1, drop_last=True)
     dataloader = DataLoader(dataset, batch_sampler=sorted_sampler, num_workers=n_workers)
 
     print('Elapsed Time (dataloader): {} sec'.format(time.time()-start_t))

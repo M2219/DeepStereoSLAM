@@ -9,8 +9,9 @@ import torch.nn.functional as F
 from typing import List, Optional, Tuple
 from .core.raft import RAFT
 from .submodule import *
+from .convgru import ConvGRU
+
 def json_to_args(json_path):
-    # return a argparse.Namespace object
     with open(json_path, 'r') as f:
         data = json.load(f)
     args = argparse.Namespace()
@@ -68,23 +69,6 @@ class Feature(SubModule):
         self.l3 = torch.nn.Sequential(*model.cnet.layer3)
         self.final_conv = model.cnet.final_conv
 
-        #self.conv4 = nn.Sequential(BasicConv(256, 512, is_3d=False, bn=True, gelu=True, kernel_size=3,
-        #                                     padding=1, stride=2, dilation=1),
-        #                           BasicConv(512, 512, is_3d=False, bn=True, gelu=True, kernel_size=3,
-        #                                     padding=1, stride=1, dilation=1))
-
-
-        #self.final_conv = BasicConv(512, 512, is_3d=False, bn=True, gelu=True, kernel_size=1,
-        #                                     padding=1, stride=1, dilation=1)
-
-        #self.conv5 = nn.Sequential(BasicConv(512, 1024, is_3d=False, bn=True, gelu=True, kernel_size=3,
-        #                                     padding=1, stride=2, dilation=1),
-        #                           BasicConv(1024, 1024, is_3d=False, bn=True, gelu=True, kernel_size=3,
-        #                                     padding=1, stride=1, dilation=1))
-
-        #self.final_conv = BasicConv(1024, 1024, is_3d=False, bn=True, gelu=True, kernel_size=1,
-        #                                     padding=1, stride=1, dilation=1)
-
     def forward(self, x: torch.Tensor) -> List[ torch.Tensor]:
         # ResNet Backbone
         x = self.relu(self.bn1(self.conv1(x)))
@@ -95,8 +79,6 @@ class Feature(SubModule):
         for i in range(len(self.l3)):
             x = self.l3[i](x)
 
-        #x = self.conv4(x)
-        #x = self.conv5(x)
         x = self.final_conv(x)
 
         return x
@@ -116,50 +98,34 @@ class DeepStereoSLAM(nn.Module):
     def __init__(self):
         super(DeepStereoSLAM, self).__init__()
         self.feat_out = Feature()
+        self.conv_gru = ConvGRU(input_size=256, hidden_sizes=[128, 128], kernel_sizes=[3, 3], n_layers=2)
+        self.fc1 = nn.Linear(in_features=938496, out_features=6)
+        #self.fc2 = nn.Linear(in_features=256, out_features=6)
 
-        self.conv_gru1 = ConvGRUCell(256, 128, kernel_size=3)
-        self.gru_head = GruHead(128, 256, 256)
-        self.conv_gru2 = ConvGRUCell(256, 128, kernel_size=3)
-        self.fc1 = nn.Linear(in_features=938496, out_features=256)
-        self.fc2 = nn.Linear(in_features=256, out_features=6)
+        #self.dropout1 = nn.Dropout(p=0.3)  # Dropout after GRU1
+        #self.dropout2 = nn.Dropout(p=0.3)  # Dropout after GRU2
 
-        self.h_tt1 = None
-        self.h_tt2 = None
+        #self.relu = nn.LeakyReLU(0.1, inplace=True)
 
-        self.relu = nn.ReLU()
-
-    #def forward(self, img: torch.Tensor, h_tt1, h_tt2) -> List[torch.Tensor]:
     def forward(self, img: torch.Tensor) -> List[torch.Tensor]:
 
-        img = 2 * (img / 255.0) - 1.0
+        #img = 2 * (img / 255.0) - 1.0
         img = torch.cat((img[:, 1:], img[:, :-1]), dim=2).squeeze(1)
-
         batch_size = img.size(0)
 
         #print("input", img.shape)
 
         features = self.feat_out(img)
 
-        #print("features,", features.shape)
+        h_t2 = self.conv_gru(features)
 
-        h_t1 = self.conv_gru1(features, self.h_tt1 if self.h_tt1 is not None else None)
-        #print("h_t1_2", h_t1.shape)
-
-        #print("h_t1_3", h_t1.shape)
-        in_gru2 = self.gru_head(h_t1)
-
-        #print("h_t1_4", h_h.shape)
-        h_t2 = self.conv_gru2(in_gru2, self.h_tt2 if self.h_tt2 is not None else None)
-
-        self.h_tt1 = h_t1.detach()
-        self.h_tt2 = h_t2.detach()
-
-        nn_inp = h_t2.view(batch_size, -1)
+        nn_inp = h_t2[-1].view(batch_size, -1)
         #print("output",  nn_inp.shape)
 
-        nn_inp = self.relu(self.fc1(nn_inp))
-        poses = self.fc2(nn_inp)
+        poses = self.fc1(nn_inp)
+        #h_t1 = self.dropout1(poses)  # Apply Dropout after GRU1
 
-        print("poses",  poses.shape)
+        #poses = self.fc2(nn_inp)
+        #print("poses",  poses.shape)
 
-        return poses #, h_t1, h_t2
+        return poses

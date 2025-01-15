@@ -22,13 +22,13 @@ from torch.utils.data import DataLoader
 from utils import *
 
 from models import __models__, model_loss_train, model_loss_test
-
 from dataset.dataset import get_data_info, SortedRandomBatchSampler, ImageSequenceDataset
-torch.autograd.set_detect_anomaly(True)
+torch.set_printoptions(precision=8, sci_mode=False, linewidth=100)
+
 parser = argparse.ArgumentParser(description="DeepStereoSLAM")
 parser.add_argument('--model', default='DeepStereoSLAM', help='select a model structure', choices=__models__.keys())
 parser.add_argument('--pathToSettings', default="configs.yaml", help="path to settings")
-parser.add_argument('--logdir', default='checkpoints', help='the directory to save logs and checkpoints')
+parser.add_argument('--logdir', default='./checkpoints', help='the directory to save logs and checkpoints')
 parser.add_argument('--loadckpt', default='', help='load the weights from a specific checkpoint')
 parser.add_argument('--resume', action='store_true', help='continue training the model')
 parser.add_argument('--performance', action='store_true', help='evaluate the performance')
@@ -67,7 +67,7 @@ print('='*50)
 model = __models__[args.model]()
 model = nn.DataParallel(model)
 model.cuda()
-optimizer = optim.AdamW(model.parameters(), lr=fsSettings["lr"], betas=(0.9, 0.999))
+optimizer = optim.AdamW(model.parameters(), lr=fsSettings["lr"], betas=(0.9, 0.999), weight_decay=1e-4)
 
 print("creating new summary file")
 logger = SummaryWriter(args.logdir)
@@ -86,10 +86,6 @@ if args.resume:
     start_epoch = state_dict["epoch"] + 1
 
 elif args.loadckpt:
-    cv_name = args.loadckpt.split("sceneflow_")[1].split(".")[0]
-    if cv_name != args.cv:
-        raise AssertionError("Please load weights compatible with " + cv_name)
-
     print("loading model {}".format(args.loadckpt))
     state_dict = torch.load(args.loadckpt)
     model_dict = model.state_dict()
@@ -116,9 +112,6 @@ def train():
     for epoch_idx in range(start_epoch, fsSettings["epochs"]):
         adjust_learning_rate(optimizer, epoch_idx, fsSettings["lr"], fsSettings["lrepochs"])
 
-        h_t1o = None
-        h_t2o = None
-
         for batch_idx, sample in enumerate(TrainImgLoader):
             global_step = len(TrainImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
@@ -136,21 +129,18 @@ def train():
                                                                                        len(TrainImgLoader), loss, loss_ave.avg,
                                                                                        time.time() - start_time))
             del scalar_outputs
-        if (epoch_idx + 1) % args.save_freq == 0:
+        if (epoch_idx + 1) % fsSettings["save_freq"] == 0:
             checkpoint_data = {'epoch': epoch_idx, 'model': model.state_dict(), 'optimizer': optimizer.state_dict()}
             torch.save(checkpoint_data, "{}/checkpoint_{:0>6}.ckpt".format(args.logdir, epoch_idx))
         gc.collect()
 
-        h_t1o = None
-        h_t2o = None
-
         avg_test_scalars = AverageMeterDict()
         for batch_idx, sample in enumerate(TestImgLoader):
             global_step = len(TestImgLoader) * epoch_idx + batch_idx
-            do_summary = global_step % args.summary_freq == 0
+            do_summary = global_step % fsSettings["summary_freq"] == 0
 
             start_time = time.time()
-            loss, scalar_outputs, h_t1o, h_t2o = test_sample(sample, h_t1o, h_t2o, compute_metrics=do_summary)
+            loss, scalar_outputs= test_sample(sample, compute_metrics=do_summary)
             tt = time.time()
 
             loss_ave_t.update(loss)
@@ -159,11 +149,12 @@ def train():
                 save_scalars(logger, 'test', scalar_outputs, global_step)
             avg_test_scalars.update(scalar_outputs)
 
-            print('Epoch {}/{} | Iter {}/{} | test loss = {:.3f}({:.3f}) | time = {:.3f}'.format(epoch_idx, args.epochs,
+            print('Epoch {}/{} | Iter {}/{} | test loss = {:.3f}({:.3f}) | time = {:.3f}'.format(epoch_idx, fsSettings["epochs"],
                                                                                        batch_idx,
                                                                                        len(TestImgLoader), loss, loss_ave_t.avg,
                                                                                        tt - start_time))
             del scalar_outputs
+
         """
         avg_test_scalars = avg_test_scalars.mean()
         nowerror = avg_test_scalars["EPE"][0]
@@ -174,21 +165,24 @@ def train():
         print("avg_test_scalars", avg_test_scalars)
         print('MAX epoch %d total test error = %.5f' % (bestepoch, error))
         """
-
         gc.collect()
     #print('MAX epoch %d total test error = %.5f' % (bestepoch, error))
 
 def train_sample(sample, compute_metrics=False):
     model.train()
     img_seq, poses = sample['image_seq'], sample['pose_seq']
-    print(poses)
+
     img_seq = img_seq.cuda()
     poses = poses.cuda()
-
     optimizer.zero_grad()
 
     #pose_est, h_t1o, h_t2o = model(img_seq, h_t1o, h_t2o)
     pose_est = model(img_seq)
+    print("="*50)
+    print("groundtruth", poses)
+    print("estimation", pose_est)
+    print("="*50)
+
     loss = model_loss_train(pose_est, poses)
 
     scalar_outputs = {"loss": loss}
@@ -207,13 +201,17 @@ def train_sample(sample, compute_metrics=False):
 def test_sample(sample, compute_metrics=True):
     model.eval()
 
-    img_seq, poses = sample['image_seq'], sample['pose_sq']
+    img_seq, poses = sample['image_seq'], sample['pose_seq']
 
     img_seq = img_seq.cuda()
     poses = poses.cuda()
 
-    pose_est, h_t1o, h_t2o = model(img_seq, h_t1o, h_t2o)
-    #pose_est = model(img_seq)
+    pose_est = model(img_seq)
+
+    print("="*50)
+    print("groundtruth", poses)
+    print("estimation", pose_est)
+    print("="*50)
 
     loss = model_loss_test(pose_est, poses)
     scalar_outputs = {"loss": loss}
@@ -223,7 +221,7 @@ def test_sample(sample, compute_metrics=True):
     #scalar_outputs["Thres1"] = [Thres_metric(disp_est, disp_gt, mask, 1.0) for disp_est in disp_ests]
     #scalar_outputs["Thres2"] = [Thres_metric(disp_est, disp_gt, mask, 2.0) for disp_est in disp_ests]
     #scalar_outputs["Thres3"] = [Thres_metric(disp_est, disp_gt, mask, 3.0) for disp_est in disp_ests]
-    return tensor2float(loss), tensor2float(scalar_outputs), h_t1o, h_t2o
+    return tensor2float(loss), tensor2float(scalar_outputs)
 
 @make_nograd_func
 def measure_performance(dummy_input1):
