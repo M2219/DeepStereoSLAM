@@ -1,1 +1,5 @@
 \checkpoints
+\checkpoint
+\result
+\test_dump.txt
+\test_df.csv

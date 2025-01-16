@@ -24,7 +24,7 @@ if __name__ == '__main__':
 
     videos_to_test= fsSettings["valid_video"]
 
-    load_model_path = 'checkpoint_000014.ckpt'
+    load_model_path = './checkpoint/deepslam_first.ckpt'
     save_dir = 'result/'
     seq_len = fsSettings["seq_len"]
 
@@ -35,12 +35,14 @@ if __name__ == '__main__':
     model = nn.DataParallel(model)
     model.cuda()
 
-    #state_dict = torch.load(load_model_path)
-    #model_dict = model.state_dict()
-    #pre_dict = {k: v for k, v in state_dict["model"].items() if k in model_dict}
-    #model_dict.update(pre_dict)
-    #model.load_state_dict(model_dict)
-
+    state_dict = torch.load(load_model_path)
+    model_dict = model.state_dict()
+    pre_dict = {k: v for k, v in state_dict["model"].items() if k in model_dict}
+    model_dict.update(pre_dict)
+    model.load_state_dict(model_dict)
+    print("="*50)
+    print("Checkpoint loaded!")
+    print("="*50)
     n_workers = 0
     overlap = 1
 
@@ -51,7 +53,8 @@ if __name__ == '__main__':
     fd.write('\n'+'='*50 + '\n')
 
     for test_video in videos_to_test:
-        df = get_data_info("validation", fsSettings, overlap, sample_times=1, pad_y=False, shuffle=False, sort=False)
+        print(test_video)
+        df = get_data_info("validation", fsSettings, overlap, test_video=test_video, sample_times=1, pad_y=False, shuffle=False, sort=False)
         df = df.loc[df.seq_len == seq_len]  # drop last
         dataset = ImageSequenceDataset(df)
         df.to_csv('test_df.csv')
@@ -64,24 +67,20 @@ if __name__ == '__main__':
         st_t = time.time()
 
         n_batch = len(dataloader)
-        print(model)
 
         for i, sample in enumerate(dataloader):
             model.eval()
-            print("i", i)
             print('{} / {}'.format(i, n_batch), end='\r', flush=True)
             img_seq, poses = sample['image_seq'], sample['pose_seq']
 
+
             img_seq = img_seq.cuda()
             poses = poses.cuda()
+            #print("gt", poses)
 
-            input = torch.rand(1, 2, 3, 375, 1242).cuda()*10
-            print("images", input)
-            predict_pose = model(input)
+            predict_pose = model(img_seq)
+            #print("pred", predict_pose)
 
-            print("predict -->" , predict_pose)
-
-        """
             fd.write('Batch: {}\n'.format(i))
             fd.write(' {}\n'.format(predict_pose[0]))
 
@@ -92,7 +91,8 @@ if __name__ == '__main__':
                 answer.append(predict_pose)
 
             else:
-                ang = eulerAnglesToRotationMatrix([answer[-1][1], answer[-1][0], answer[-1][2]]) # ?
+                ang = eulerAnglesToRotationMatrix([0, answer[-1][0], 0]) # ?
+                #ang = eulerAnglesToRotationMatrix([answer[-1][1], answer[-1][0], answer[-1][2]]) # ?
                 location = ang.dot(predict_pose[3:])
                 predict_pose[3:] = location[:]
 
@@ -104,10 +104,10 @@ if __name__ == '__main__':
                 last_pose[0] = (last_pose[0] + np.pi) % (2 * np.pi) - np.pi
                 answer.append(last_pose)
 
-        print('len(answer): ', len(answer))
-        print('expect len: ', len(glob.glob('{}{}/*.png'.format(par.image_dir, test_video))))
-        print('Predict use {} sec'.format(time.time() - st_t))
+            #print("answer", answer)
 
+        print('len(answer): ', len(answer))
+        print('Predict use {} sec'.format(time.time() - st_t))
 
         # Save answer
         with open('{}/out_{}.txt'.format(save_dir, test_video), 'w') as f:
@@ -131,4 +131,3 @@ if __name__ == '__main__':
         loss /= len(gt_pose)
         print('Loss = ', loss)
         print('='*50)
-        """

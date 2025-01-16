@@ -10,14 +10,17 @@ from torchvision import transforms
 import time
 from utils.converter import normalize_angle_delta
 
-def get_data_info(dataset, configs, overlap, sample_times=1, pad_y=False, shuffle=False, sort=True):
+def get_data_info(dataset, configs, overlap, sample_times=1, test_video=None, pad_y=False, shuffle=False, sort=True):
     X_path, Y = [], []
     X_len = []
     seq_len = configs['seq_len']
     if dataset == "train":
         folder_list = configs['train_video']
     elif dataset == "validation":
-        folder_list = configs['valid_video']
+        if test_video is not None:
+            folder_list = [test_video]
+        else:
+            folder_list = configs['valid_video']
 
     for folder in folder_list:
 

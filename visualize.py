@@ -1,11 +1,15 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import time
-from params import par
+import yaml
 
-pose_GT_dir = par.pose_dir  #'KITTI/pose_GT/'
+with open('configs.yaml', 'r') as f:
+    fsSettings = yaml.load(f, Loader=yaml.SafeLoader)
+
+
+pose_GT_dir = fsSettings['pose_dir']
 predicted_result_dir = './result/'
-gradient_color = True
+gradient_color = False
 
 def plot_route(gt, out, c_gt='g', c_out='r'):
 	x_idx = 3
@@ -17,17 +21,18 @@ def plot_route(gt, out, c_gt='g', c_out='r'):
 
 	x = [v for v in out[:, x_idx]]
 	y = [v for v in out[:, y_idx]]
-	plt.plot(x, y, color=c_out, label='DeepStereoSlam')
+	plt.plot(x, y, color=c_out, label='DeepStereoSLAM')
 	#plt.scatter(x, y, color='b')
 	plt.gca().set_aspect('equal', adjustable='datalim')
 
 
 # Load in GT and predicted pose
-video_list = ['00', '02', '08', '09']
-video_list += ['01', '04', '05', '06', '07', '10']
 
+#video_list = ['00', '02', '08', '09']
+video_list = ['03', '04', '05', '06', '07', '10']
 
 for video in video_list:
+
 	print('='*50)
 	print('Video {}'.format(video))
 

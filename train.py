@@ -29,7 +29,7 @@ parser = argparse.ArgumentParser(description="DeepStereoSLAM")
 parser.add_argument('--model', default='DeepStereoSLAM', help='select a model structure', choices=__models__.keys())
 parser.add_argument('--pathToSettings', default="configs.yaml", help="path to settings")
 parser.add_argument('--logdir', default='./checkpoints', help='the directory to save logs and checkpoints')
-parser.add_argument('--loadckpt', default='', help='load the weights from a specific checkpoint')
+parser.add_argument('--loadckpt', default='./checkpoint/deepslam_first.ckpt', help='load the weights from a specific checkpoint')
 parser.add_argument('--resume', action='store_true', help='continue training the model')
 parser.add_argument('--performance', action='store_true', help='evaluate the performance')
 
@@ -111,7 +111,7 @@ def train():
 
     for epoch_idx in range(start_epoch, fsSettings["epochs"]):
         adjust_learning_rate(optimizer, epoch_idx, fsSettings["lr"], fsSettings["lrepochs"])
-
+        """
         for batch_idx, sample in enumerate(TrainImgLoader):
             global_step = len(TrainImgLoader) * epoch_idx + batch_idx
             start_time = time.time()
@@ -133,7 +133,7 @@ def train():
             checkpoint_data = {'epoch': epoch_idx, 'model': model.state_dict(), 'optimizer': optimizer.state_dict()}
             torch.save(checkpoint_data, "{}/checkpoint_{:0>6}.ckpt".format(args.logdir, epoch_idx))
         gc.collect()
-
+        """
         avg_test_scalars = AverageMeterDict()
         for batch_idx, sample in enumerate(TestImgLoader):
             global_step = len(TestImgLoader) * epoch_idx + batch_idx
@@ -149,7 +149,7 @@ def train():
                 save_scalars(logger, 'test', scalar_outputs, global_step)
             avg_test_scalars.update(scalar_outputs)
 
-            print('Epoch {}/{} | Iter {}/{} | test loss = {:.3f}({:.3f}) | time = {:.3f}'.format(epoch_idx, fsSettings["epochs"],
+            print('Epoch {}/{} | Iter {}/{} | test loss = {:.6f}({:.6f}) | time = {:.6f}'.format(epoch_idx, fsSettings["epochs"],
                                                                                        batch_idx,
                                                                                        len(TestImgLoader), loss, loss_ave_t.avg,
                                                                                        tt - start_time))
